@@ -1,0 +1,221 @@
+# ~/.bashrc: executed by bash(1) for non-login shells.
+# see /usr/share/doc/bash/examples/startup-files (in the package bash-doc)
+# for examples
+
+# If not running interactively, don't do anything
+case $- in
+    *i*) ;;
+      *) return;;
+esac
+
+# History
+HISTCONTROL=ignoreboth
+shopt -s histappend
+HISTSIZE=1000
+HISTFILESIZE=2000
+
+# Update LINES/COLUMNS after each command
+shopt -s checkwinsize
+
+# Set variable identifying the chroot you work in (used in the prompt below)
+if [ -z "${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
+    debian_chroot=$(cat /etc/debian_chroot)
+fi
+
+# Prompt
+case "$TERM" in
+    xterm-color|*-256color) color_prompt=yes;;
+esac
+
+if [ -n "$force_color_prompt" ]; then
+    if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
+        color_prompt=yes
+    else
+        color_prompt=
+    fi
+fi
+
+if [ "$color_prompt" = yes ]; then
+    PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+else
+    PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
+fi
+unset color_prompt force_color_prompt
+
+# If this is an xterm set the title to user@host:dir
+case "$TERM" in
+xterm*|rxvt*)
+    PS1="\[\e]0;${debian_chroot:+($debian_chroot)}\u@\h: \w\a\]$PS1"
+    ;;
+*)
+    ;;
+esac
+
+# dircolors (LS_COLORS). Ära defineeri siin ls alias't – teeme seda allpool ühes kohas.
+if [ -x /usr/bin/dircolors ]; then
+    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+fi
+
+# User aliases (optional separate file)
+if [ -f ~/.bash_aliases ]; then
+    . ~/.bash_aliases
+fi
+
+# Bash completion
+if ! shopt -oq posix; then
+  if [ -f /usr/share/bash-completion/bash_completion ]; then
+    . /usr/share/bash-completion/bash_completion
+  elif [ -f /etc/bash_completion ]; then
+    . /etc/bash_completion
+  fi
+fi
+
+# ----------------------------
+# Tooling compatibility (Debian naming)
+# ----------------------------
+
+# fd-find -> fd
+if ! command -v fd >/dev/null 2>&1 && command -v fdfind >/dev/null 2>&1; then
+  alias fd='fdfind'
+fi
+
+# bat -> bat (Debian: batcat)
+if ! command -v bat >/dev/null 2>&1 && command -v batcat >/dev/null 2>&1; then
+  alias bat='batcat'
+fi
+
+# Editor default
+if command -v nvim >/dev/null 2>&1; then
+  export EDITOR=nvim
+elif command -v vim >/dev/null 2>&1; then
+  export EDITOR=vim
+else
+  export EDITOR=nano
+fi
+
+# ----------------------------
+# eza aliases (single source of truth)
+# ----------------------------
+if command -v eza >/dev/null 2>&1; then
+  alias ls='eza --group-directories-first'
+  alias ll='eza -l --group-directories-first'
+  alias la='eza -la --group-directories-first'
+  alias lt='eza --tree --level=2'
+  alias lsg='eza -l --git --group-directories-first'
+  alias lst='eza --tree --git --level=3'
+else
+  alias ls='ls --color=auto'
+fi
+
+# ----------------------------
+# zoxide
+# ----------------------------
+if command -v zoxide >/dev/null 2>&1; then
+  eval "$(zoxide init bash)"
+fi
+
+# zl: kuva zoxide teadaolevad kataloogid (stdin -> eza ei tööta, seega lihtsalt list)
+function zl {
+  command -v zoxide >/dev/null 2>&1 || return
+  zoxide query -l
+}
+
+# ----------------------------
+# fzf default keybindings (Ctrl+R, Ctrl+T, Alt+C default jne)
+# Lae need ENNE custom bind'e, et custom saaks vajadusel üle kirjutada.
+# ----------------------------
+if [ -f /usr/share/doc/fzf/examples/key-bindings.bash ]; then
+  source /usr/share/doc/fzf/examples/key-bindings.bash
+fi
+
+# ----------------------------
+# Custom hotkeys (Priit)
+# NB: need on lõpus, et miski neid enam üle ei kirjutaks.
+# ----------------------------
+
+# Alt+c – käskude ajaloo sirvimine (sisestab valiku käsureale)
+__priit_fzf_history__() {
+  command -v fzf >/dev/null 2>&1 || return
+  local cmd
+  cmd=$(
+    history |
+      sed 's/^[ ]*[0-9]\+[ ]*//' |
+      tac |
+      fzf --height=40% --reverse --prompt='history> '
+  ) || return
+  [ -n "$cmd" ] || return
+  READLINE_LINE="$cmd"
+  READLINE_POINT=${#READLINE_LINE}
+}
+bind -x '"\ec": __priit_fzf_history__'
+
+# Alt+z – zoxide kataloogivalik (cd samas shellis; xargs ei sobi, sest z on funktsioon)
+__priit_fzf_zoxide__() {
+  command -v zoxide >/dev/null 2>&1 || return
+  command -v fzf >/dev/null 2>&1 || return
+  local dir
+  dir=$(zoxide query -l | fzf --height=40% --reverse --prompt='cd> ') || return
+  [ -n "$dir" ] || return
+  cd "$dir" || return
+  command -v eza >/dev/null 2>&1 && eza --group-directories-first
+}
+bind -x '"\ez": __priit_fzf_zoxide__'
+
+# Alt+f – vali fail (fd+fzf) ja ava editoris
+__priit_fzf_files__() {
+  command -v fzf >/dev/null 2>&1 || return
+  command -v fd >/dev/null 2>&1 || return
+  local file preview_cmd
+  if command -v bat >/dev/null 2>&1; then
+    preview_cmd='bat --style=numbers --color=always {}'
+  else
+    preview_cmd='sed -n "1,200p" {}'
+  fi
+  file=$(fd --type f | fzf --height=40% --reverse --prompt='file> ' --preview "$preview_cmd") || return
+  [ -n "$file" ] || return
+  "$EDITOR" "$file"
+}
+bind -x '"\ef": __priit_fzf_files__'
+
+# Alt+g – küsi muster, vali vaste (rg+fzf), ava vastaval real
+__priit_fzf_rg__() {
+  command -v rg >/dev/null 2>&1 || return
+  command -v fzf >/dev/null 2>&1 || return
+
+  local q sel file line preview_cmd
+  read -r -p "rg> " q
+  [ -n "$q" ] || return
+
+  if command -v bat >/dev/null 2>&1; then
+    preview_cmd='bat --style=numbers --color=always {1} --highlight-line {2}'
+  else
+    preview_cmd='sed -n "$(( {2}-5 )), $(( {2}+20 ))p" {1}'
+  fi
+
+  sel=$(
+    rg --line-number --no-heading --color=never "$q" 2>/dev/null |
+      fzf --height=40% --reverse --prompt="rg[$q]> " --delimiter ':' --preview "$preview_cmd"
+  ) || return
+
+  file=${sel%%:*}
+  line=${sel#*:}; line=${line%%:*}
+  [ -n "$file" ] || return
+  "$EDITOR" +"$line" "$file"
+}
+bind -x '"\eg": __priit_fzf_rg__'
+
+# Alt+p – protsesside valik (vaatamine)
+__priit_fzf_ps__() {
+  command -v fzf >/dev/null 2>&1 || return
+  local sel pid
+  sel=$(
+    ps -eo pid,user,%cpu,%mem,cmd --sort=-%cpu |
+      sed 1d |
+      fzf --height=40% --reverse --prompt='ps> '
+  ) || return
+  pid=$(awk '{print $1}' <<<"$sel")
+  [ -n "$pid" ] || return
+  ps -fp "$pid"
+}
+bind -x '"\ep": __priit_fzf_ps__'
+

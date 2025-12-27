@@ -1,0 +1,2 @@
+require("priit.plugins.lazy")
+

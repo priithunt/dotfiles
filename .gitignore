@@ -1,2 +1,14 @@
+# macOS
 .DS_Store
 **/.DS_Store
+
+# vim swap/temps
+*.swp
+*.swo
+*.tmp
+
+# Neovim cache / state (ära pane repo alla)
+nvim/nvim/.git
+nvim/nvim/.cache
+nvim/nvim/.local
+nvim/nvim/.state
